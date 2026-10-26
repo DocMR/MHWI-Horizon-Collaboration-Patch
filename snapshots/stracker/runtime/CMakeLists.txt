@@ -1,0 +1,322 @@
+cmake_minimum_required(VERSION 3.15)
+project(StormslingerRuntime LANGUAGES C CXX)
+# Use the include-diagnostic prefix detected by CMake for this compiler.
+set(CMAKE_CXX_STANDARD 17)
+add_executable(QuestMappingPatchSelftest src/quest_mapping_patch_selftest.cpp)
+target_link_libraries(QuestMappingPatchSelftest PRIVATE minhook)
+target_compile_options(QuestMappingPatchSelftest PRIVATE /W4 /WX)
+option(STORMSLINGER_WEAPON_TREE_FILTER "Development: target-only filter and immutable recursive tree builder clone" OFF)
+option(STORMSLINGER_DIAGNOSTIC_NO_BOOTSTRAP "Diagnostic only: forward DirectInput without starting project runtime" OFF)
+option(STORMSLINGER_DIAGNOSTIC_NO_SHOOTING "Diagnostic only: start quest/workshop bridge without shooting hooks" OFF)
+option(STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL "Diagnostic only: omit Power Cell status/audio/damage/sync hook group" OFF)
+option(STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL_CALLS "Diagnostic only: retain native Power Cell lifecycle/skill/damage hooks without update/growth/sync CALL sites" OFF)
+option(STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_ONLY "Diagnostic only: retain only status lifecycle within Power Cell native hooks" OFF)
+set(STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_MASK "7" CACHE STRING "Diagnostic status lifecycle hooks: construct1, reset2, destroy4")
+if(STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_ONLY AND NOT STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL_CALLS)
+  message(FATAL_ERROR "Status lifecycle diagnostic requires Power Cell CALL sites disabled")
+endif()
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/minhook-1.3.4)
+add_library(StormslingerPreflight SHARED src/preflight.cpp src/quest_plan.cpp src/quest_bridge.cpp)
+target_link_libraries(StormslingerPreflight PRIVATE minhook)
+target_compile_options(StormslingerPreflight PRIVATE /W4)
+add_executable(StormslingerHookSelftest src/hooks_selftest.cpp)
+target_link_libraries(StormslingerHookSelftest PRIVATE minhook)
+target_compile_options(StormslingerHookSelftest PRIVATE /W4)
+
+
+add_library(StormslingerStandalone SHARED src/preflight.cpp src/quest_plan.cpp src/quest_bridge.cpp src/dinput_proxy.cpp src/dinput8.def)
+target_sources(StormslingerStandalone PRIVATE src/runtime_log.cpp)
+set_target_properties(StormslingerStandalone PROPERTIES OUTPUT_NAME "dinput8")
+target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_STANDALONE_PROXY=1)
+if(STORMSLINGER_DIAGNOSTIC_NO_BOOTSTRAP)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_NO_BOOTSTRAP=1)
+endif()
+if(STORMSLINGER_DIAGNOSTIC_NO_SHOOTING)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_NO_SHOOTING=1)
+endif()
+if(STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL=1)
+endif()
+if(STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL_CALLS)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL_CALLS=1)
+endif()
+if(STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_ONLY)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_ONLY=1)
+  if(NOT STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_MASK MATCHES "^[1247]$")
+    message(FATAL_ERROR "Diagnostic status lifecycle mask must be1,2,4,7")
+  endif()
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_MASK=${STORMSLINGER_DIAGNOSTIC_STATUS_LIFECYCLE_MASK})
+endif()
+target_link_libraries(StormslingerStandalone PRIVATE minhook)
+target_compile_options(StormslingerStandalone PRIVATE /W4)
+if(STORMSLINGER_WEAPON_TREE_FILTER)
+  target_compile_definitions(StormslingerPreflight PRIVATE STORMSLINGER_WEAPON_TREE_FILTER=1)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_WEAPON_TREE_FILTER=1)
+endif()
+add_executable(StormslingerProxySelftest src/proxy_selftest.cpp)
+target_link_libraries(StormslingerProxySelftest PRIVATE dxguid)
+target_compile_options(StormslingerProxySelftest PRIVATE /W4)
+
+
+
+option(STORMSLINGER_ORIGINAL_QUEST_IDS "Diagnostic build using unchanged PS quest IDs" OFF)
+if(STORMSLINGER_ORIGINAL_QUEST_IDS)
+  target_compile_definitions(StormslingerPreflight PRIVATE STORMSLINGER_ORIGINAL_QUEST_IDS=1)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_ORIGINAL_QUEST_IDS=1)
+endif()
+option(STORMSLINGER_NATIVE_QUEST_SAVE "Native original-ID quest completion mapping integration" OFF)
+if(STORMSLINGER_NATIVE_QUEST_SAVE)
+  if(NOT STORMSLINGER_ORIGINAL_QUEST_IDS)
+    message(FATAL_ERROR "Native quest save mapping requires original PS task IDs")
+  endif()
+  foreach(task_target StormslingerPreflight StormslingerStandalone)
+    target_sources(${task_target} PRIVATE ../staging/Horizon-other-module/src/horizon_quest_mapping.cpp)
+    target_compile_definitions(${task_target} PRIVATE STORMSLINGER_NATIVE_QUEST_SAVE=1)
+  endforeach()
+endif()
+
+add_executable(StormslingerQuestNodesSelftest src/quest_nodes_selftest.cpp)
+target_link_libraries(StormslingerQuestNodesSelftest PRIVATE minhook)
+target_compile_options(StormslingerQuestNodesSelftest PRIVATE /W4)
+
+# Buildable shooting components; not activated by either current game DLL.
+# Resource/EFX, action-state and full native initialization remain prerequisites.
+enable_language(ASM_MASM)
+add_executable(StormboltLoopUpdateEntrySelftest src/stormbolt_loop_update_entry_selftest.cpp src/stormbolt_loop_update_entry.asm src/stormbolt_loop_update_test_caller.asm)
+target_link_libraries(StormboltLoopUpdateEntrySelftest PRIVATE minhook)
+add_executable(StormboltStatusUpdateEntrySelftest src/stormbolt_status_update_entry_selftest.cpp src/stormbolt_status_update_entry.asm src/stormbolt_status_update_test_caller.asm)
+target_link_libraries(StormboltStatusUpdateEntrySelftest PRIVATE minhook)
+add_executable(StormboltTimerUpdateEntrySelftest src/stormbolt_timer_update_entry_selftest.cpp src/stormbolt_timer_update_entry.asm src/stormbolt_timer_update_test_caller.asm)
+target_link_libraries(StormboltTimerUpdateEntrySelftest PRIVATE minhook)
+add_executable(StormboltStatusLifecycleSelftest src/stormbolt_status_lifecycle_selftest.cpp)
+target_link_libraries(StormboltStatusLifecycleSelftest PRIVATE minhook)
+add_library(StormslingerShootingComponents STATIC
+  src/stormbolt_itemwindow_mode_entry.asm
+  src/stormbolt_elemental_class48_entry.asm
+  src/stormbolt_shell_hook_entry.cpp src/stormbolt_shell_hook_entry.asm
+  src/stormbolt_loop_update_entry.cpp src/stormbolt_loop_update_entry.asm
+  src/stormbolt_status_update_entry.cpp src/stormbolt_status_update_entry.asm
+  src/stormbolt_timer_update_entry.cpp src/stormbolt_timer_update_entry.asm
+  src/stormbolt_remote_update_entry.cpp src/stormbolt_remote_update_entry.asm
+  src/stormbolt_growth_entry.asm src/stormbolt_sync_entries.cpp src/stormbolt_sync_pack_entry.asm src/stormbolt_sync_complete_entry.asm)
+target_link_libraries(StormslingerShootingComponents PUBLIC minhook)
+target_sources(StormslingerPreflight PRIVATE src/stormbolt_runtime_preflight.cpp)
+target_sources(StormslingerStandalone PRIVATE src/stormbolt_runtime_preflight.cpp)
+target_link_libraries(StormslingerPreflight PRIVATE StormslingerShootingComponents)
+target_link_libraries(StormslingerStandalone PRIVATE StormslingerShootingComponents)
+target_compile_options(StormslingerShootingComponents PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4;/WX>)
+add_executable(StormboltPowerCellSessionSelftest src/stormbolt_power_cell_session_selftest.cpp src/stormbolt_loop_update_test_caller.asm src/stormbolt_status_update_test_caller.asm src/stormbolt_timer_update_test_caller.asm)
+target_link_libraries(StormboltPowerCellSessionSelftest PRIVATE StormslingerShootingComponents)
+
+add_executable(StormboltLifecycleSelftest src/stormbolt_lifecycle_selftest.cpp)
+target_link_libraries(StormboltLifecycleSelftest PRIVATE minhook)
+add_executable(StormboltLoopLifecycleSelftest src/stormbolt_lifecycle_selftest.cpp)
+target_compile_definitions(StormboltLoopLifecycleSelftest PRIVATE STORMBOLT_LOOP_LIFECYCLE_TEST)
+target_link_libraries(StormboltLoopLifecycleSelftest PRIVATE minhook)
+add_executable(StormboltLoopConstructorSelftest src/stormbolt_loop_constructor_selftest.cpp)
+target_link_libraries(StormboltLoopConstructorSelftest PRIVATE minhook)
+add_executable(StormboltShellHookSelftest src/stormbolt_shell_hook_selftest.cpp src/stormbolt_shell_hook_test_caller.asm)
+target_link_libraries(StormboltShellHookSelftest PRIVATE StormslingerShootingComponents)
+add_executable(StormboltNativeBindingsSelftest src/stormbolt_native_bindings_selftest.cpp)
+target_link_libraries(StormboltNativeBindingsSelftest PRIVATE minhook)
+add_executable(StormboltCoefficientHookSelftest src/stormbolt_coefficient_hook_selftest.cpp src/stormbolt_coefficient_test_caller.asm)
+target_link_libraries(StormboltCoefficientHookSelftest PRIVATE minhook)
+add_executable(OwnedVtablePointerSelftest src/owned_vtable_pointer_selftest.cpp)
+add_executable(StormboltShootingSessionSelftest src/stormbolt_shooting_session_selftest.cpp src/stormbolt_shell_hook_test_caller.asm src/stormbolt_coefficient_test_caller.asm src/stormbolt_loop_update_test_caller.asm src/stormbolt_status_update_test_caller.asm src/stormbolt_timer_update_test_caller.asm)
+target_link_libraries(StormboltShootingSessionSelftest PRIVATE StormslingerShootingComponents)
+add_executable(StormboltNormalToSpecialSelftest src/stormbolt_normal_to_special_selftest.cpp)
+target_link_libraries(StormboltNormalToSpecialSelftest PRIVATE minhook)
+add_executable(StormboltPlayerEffectSelftest src/stormbolt_player_effect_selftest.cpp)
+add_executable(StormboltTransitionAmmoSelftest src/stormbolt_transition_ammo_selftest.cpp)
+add_executable(StormboltSpecialToNormalSelftest src/stormbolt_special_to_normal_selftest.cpp)
+target_link_libraries(StormboltSpecialToNormalSelftest PRIVATE minhook)
+add_executable(StormboltSpecialToNormalHookSelftest src/stormbolt_special_to_normal_hook_selftest.cpp)
+add_executable(StormboltGatlingStartSelftest src/stormbolt_gatling_start_selftest.cpp)
+add_executable(StormboltMiddleFireSelftest src/stormbolt_middle_fire_selftest.cpp)
+target_link_libraries(StormboltMiddleFireSelftest PRIVATE minhook)
+target_compile_options(StormboltMiddleFireSelftest PRIVATE /W4 /WX)
+target_compile_options(StormboltGatlingStartSelftest PRIVATE /W4 /WX)
+target_link_libraries(StormboltSpecialToNormalHookSelftest PRIVATE minhook)
+foreach(shooting_test StormboltLoopConstructorSelftest StormboltLoopLifecycleSelftest StormboltLifecycleSelftest StormboltShellHookSelftest StormboltNativeBindingsSelftest StormboltCoefficientHookSelftest OwnedVtablePointerSelftest StormboltShootingSessionSelftest StormboltNormalToSpecialSelftest StormboltPlayerEffectSelftest StormboltTransitionAmmoSelftest StormboltSpecialToNormalSelftest StormboltSpecialToNormalHookSelftest)
+  target_compile_options(${shooting_test} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4;/WX>)
+endforeach()
+
+add_executable(StormboltLastEntrySelftest src/stormbolt_last_entry_selftest.cpp)
+add_executable(StormboltSelfDamageShotSelftest src/stormbolt_self_damage_shot_selftest.cpp)
+target_link_libraries(StormboltSelfDamageShotSelftest PRIVATE minhook)
+target_compile_options(StormboltSelfDamageShotSelftest PRIVATE /W4 /WX)
+target_link_libraries(StormboltLastEntrySelftest PRIVATE StormslingerShootingComponents)
+target_compile_options(StormboltLastEntrySelftest PRIVATE /W4 /WX)
+
+target_link_libraries(StormboltLastEntrySelftest PRIVATE minhook)
+
+add_executable(StormboltDamageExceptionLifecycleSelftest src/stormbolt_damage_exception_lifecycle_selftest.cpp)
+target_link_libraries(StormboltDamageExceptionLifecycleSelftest PRIVATE minhook)
+
+add_executable(StormboltRemoteUpdateEntrySelftest src/stormbolt_remote_update_entry_selftest.cpp src/stormbolt_remote_update_entry.asm src/stormbolt_remote_update_test_caller.asm)
+target_sources(StormboltRemoteUpdateEntrySelftest PRIVATE src/stormbolt_sync_complete_entry.asm src/stormbolt_sync_complete_test_caller.asm)
+target_sources(StormboltRemoteUpdateEntrySelftest PRIVATE src/stormbolt_sync_pack_entry.asm src/stormbolt_sync_pack_test_caller.asm)
+target_link_libraries(StormboltRemoteUpdateEntrySelftest PRIVATE minhook)
+target_compile_options(StormboltRemoteUpdateEntrySelftest PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4;/WX>)
+
+add_executable(StormboltGrowthEntrySelftest src/stormbolt_growth_entry_selftest.cpp src/stormbolt_growth_entry.asm src/stormbolt_growth_test_caller.asm)
+target_link_libraries(StormboltGrowthEntrySelftest PRIVATE minhook)
+target_compile_options(StormboltGrowthEntrySelftest PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4;/WX>)
+
+add_executable(StormboltClass48SkillSelftest src/stormbolt_class48_skill_selftest.cpp)
+target_link_libraries(StormboltClass48SkillSelftest PRIVATE minhook)
+target_compile_options(StormboltClass48SkillSelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltConditionReadinessSelftest src/stormbolt_condition_readiness_selftest.cpp)
+add_executable(StormboltEvadeReloadEffectSelftest src/stormbolt_evade_reload_effect_selftest.cpp)
+target_link_libraries(StormboltEvadeReloadEffectSelftest PRIVATE minhook)
+target_compile_options(StormboltEvadeReloadEffectSelftest PRIVATE /W4 /WX)
+target_compile_options(StormboltConditionReadinessSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltNativeHeapSelftest src/stormbolt_native_heap_selftest.cpp)
+target_compile_options(StormboltNativeHeapSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltSourceConsumerSelftest src/stormbolt_source_consumer_selftest.cpp)
+target_link_libraries(StormboltSourceConsumerSelftest PRIVATE minhook)
+add_executable(StormboltMotionEventsSelftest src/stormbolt_motion_events_selftest.cpp)
+target_compile_options(StormboltMotionEventsSelftest PRIVATE /W4 /WX)
+add_executable(StormboltMotionEventHookSelftest src/stormbolt_motion_event_hook_selftest.cpp)
+add_executable(StormboltMuzzleEffectHookSelftest src/stormbolt_muzzle_effect_hook_selftest.cpp)
+target_link_libraries(StormboltMuzzleEffectHookSelftest PRIVATE minhook)
+target_compile_options(StormboltMuzzleEffectHookSelftest PRIVATE /W4 /WX)
+target_link_libraries(StormboltMotionEventHookSelftest PRIVATE minhook)
+target_compile_options(StormboltMotionEventHookSelftest PRIVATE /W4 /WX)
+target_compile_options(StormboltSourceConsumerSelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltShootGatlingPredicateSelftest src/stormbolt_shoot_gatling_predicate_selftest.cpp)
+target_link_libraries(StormboltShootGatlingPredicateSelftest PRIVATE minhook)
+target_compile_options(StormboltShootGatlingPredicateSelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltSourceGraphSelftest src/stormbolt_source_graph_selftest.cpp)
+target_compile_options(StormboltSourceGraphSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltSourceCommandSelftest src/stormbolt_source_command_selftest.cpp)
+target_compile_options(StormboltSourceCommandSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltSourceTransitionCreateSelftest src/stormbolt_source_transition_create_selftest.cpp)
+target_link_libraries(StormboltSourceTransitionCreateSelftest PRIVATE minhook)
+target_compile_options(StormboltSourceTransitionCreateSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltSourceTransitionPredicateSelftest src/stormbolt_source_transition_predicate_selftest.cpp)
+target_link_libraries(StormboltSourceTransitionPredicateSelftest PRIVATE minhook)
+target_compile_options(StormboltSourceTransitionPredicateSelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltEquipmentStartupSelftest src/stormbolt_equipment_startup_selftest.cpp)
+
+add_executable(StormboltChargeHudSelftest src/stormbolt_charge_hud_selftest.cpp)
+target_link_libraries(StormboltChargeHudSelftest PRIVATE minhook)
+target_compile_options(StormboltChargeHudSelftest PRIVATE /W4 /WX /fp:precise)
+target_link_libraries(StormboltEquipmentStartupSelftest PRIVATE minhook)
+target_compile_options(StormboltEquipmentStartupSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltHssReticleSelftest src/stormbolt_hss_reticle_selftest.cpp)
+target_sources(StormboltHssReticleSelftest PRIVATE src/stormbolt_hss_catalog_selftest.cpp)
+target_sources(StormboltHssReticleSelftest PRIVATE src/stormbolt_hss_controller_selftest.cpp)
+target_link_libraries(StormboltHssReticleSelftest PRIVATE minhook)
+target_compile_options(StormboltHssReticleSelftest PRIVATE /W4 /WX)
+
+add_executable(StormboltElementalClass48Selftest src/stormbolt_elemental_class48_selftest.cpp)
+add_executable(StormboltRecoilAmmo40Selftest src/stormbolt_recoil_ammo40_selftest.cpp)
+target_link_libraries(StormboltRecoilAmmo40Selftest PRIVATE StormslingerShootingComponents)
+target_link_libraries(StormboltElementalClass48Selftest PRIVATE StormslingerShootingComponents)
+
+add_executable(StormboltSwapEnergySelftest src/stormbolt_swap_energy_selftest.cpp)
+target_link_libraries(StormboltSwapEnergySelftest PRIVATE minhook)
+target_compile_options(StormboltSwapEnergySelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltShotEffectsSelftest src/stormbolt_shot_effects_selftest.cpp)
+target_compile_options(StormboltShotEffectsSelftest PRIVATE /W4 /WX /fp:precise)
+
+add_executable(StormboltItemWindowModeSelftest src/stormbolt_itemwindow_mode_selftest.cpp)
+target_link_libraries(StormboltItemWindowModeSelftest PRIVATE StormslingerShootingComponents)
+target_compile_options(StormboltItemWindowModeSelftest PRIVATE /W4 /WX /fp:precise)
+
+# Same production bridge and options as standalone, activated by Stracker's
+# LoadLibrary plugin contract instead of replacing the root DirectInput proxy.
+get_target_property(stormslinger_plugin_sources StormslingerStandalone SOURCES)
+list(FILTER stormslinger_plugin_sources EXCLUDE REGEX "dinput8\\.def$")
+get_target_property(stormslinger_plugin_definitions StormslingerStandalone COMPILE_DEFINITIONS)
+list(REMOVE_ITEM stormslinger_plugin_definitions STORMSLINGER_STANDALONE_PROXY=1)
+add_library(StormslingerCompatible SHARED ${stormslinger_plugin_sources})
+target_compile_definitions(StormslingerCompatible PRIVATE ${stormslinger_plugin_definitions} STORMSLINGER_COMPATIBLE_PLUGIN=1)
+target_link_libraries(StormslingerCompatible PRIVATE minhook StormslingerShootingComponents)
+target_compile_options(StormslingerCompatible PRIVATE /W4)
+add_executable(QuestLoaderCompatibilitySelftest src/quest_loader_compatibility_selftest.cpp)
+target_link_libraries(QuestLoaderCompatibilitySelftest PRIVATE minhook)
+target_compile_options(QuestLoaderCompatibilitySelftest PRIVATE /W4)
+add_executable(QuestLoaderMappingCompatibilitySelftest src/quest_loader_mapping_compatibility_selftest.cpp ../staging/Horizon-other-module/src/horizon_quest_mapping.cpp)
+target_compile_definitions(QuestLoaderMappingCompatibilitySelftest PRIVATE STORMSLINGER_COMPATIBLE_PLUGIN=1)
+target_link_libraries(QuestLoaderMappingCompatibilitySelftest PRIVATE minhook)
+target_compile_options(QuestLoaderMappingCompatibilitySelftest PRIVATE /W4)
+add_executable(StormslingerRuntimeLogSelftest src/runtime_log_selftest.cpp src/runtime_log.cpp)
+target_compile_options(StormslingerRuntimeLogSelftest PRIVATE /W4 /WX)
+
+# Full Horizon reuses the accepted native standalone loader and shared shooting owner.
+option(STORMSLINGER_HORIZON_COMPLETE "Build all Horizon collaboration content" OFF)
+if(STORMSLINGER_HORIZON_COMPLETE)
+  if(NOT STORMSLINGER_NATIVE_QUEST_SAVE OR NOT STORMSLINGER_WEAPON_TREE_FILTER)
+    message(FATAL_ERROR "Complete Horizon requires native quest-save and weapon-tree integration")
+  endif()
+  if(STORMSLINGER_DIAGNOSTIC_NO_SHOOTING OR STORMSLINGER_DIAGNOSTIC_NO_POWER_CELL)
+    message(FATAL_ERROR "Complete Horizon requires the shared shooting/status owner")
+  endif()
+  set(horizon_complete_src ${CMAKE_CURRENT_SOURCE_DIR}/../staging/Horizon-complete-integration-20261021/src)
+  file(GLOB horizon_complete_cpp CONFIGURE_DEPENDS "${horizon_complete_src}/*.cpp")
+  list(FILTER horizon_complete_cpp EXCLUDE REGEX "/horizon_quest_mapping.cpp$")
+  target_sources(StormslingerStandalone PRIVATE ${horizon_complete_cpp}
+    ${horizon_complete_src}/horizon_shield_status_span_entries.asm
+    ${horizon_complete_src}/horizon_shield_multiplier_entry.asm
+    ${horizon_complete_src}/horizon_shield_reaction_entry.asm
+    ${horizon_complete_src}/horizon_tutorial_trigger_entry.asm)
+  target_compile_definitions(StormslingerStandalone PRIVATE STORMSLINGER_HORIZON_COMPLETE=1)
+  target_compile_definitions(StormslingerRuntimeLogSelftest PRIVATE STORMSLINGER_HORIZON_COMPLETE=1)
+  target_link_libraries(StormslingerStandalone PRIVATE bcrypt)
+  add_executable(HorizonCompleteShieldCallbacksSelftest
+    ../tools/test_horizon_complete_shield_callbacks.cpp
+    ${horizon_complete_src}/horizon_shield_multiplier_call.cpp
+    ${horizon_complete_src}/horizon_shield_reaction_call.cpp
+    ${horizon_complete_src}/horizon_owner_verification.cpp
+    ${horizon_complete_src}/horizon_shield_status_span_entries.asm
+    ${horizon_complete_src}/horizon_shield_multiplier_entry.asm
+    ${horizon_complete_src}/horizon_shield_reaction_entry.asm)
+  target_link_libraries(HorizonCompleteShieldCallbacksSelftest PRIVATE StormslingerShootingComponents bcrypt)
+  target_compile_options(HorizonCompleteShieldCallbacksSelftest PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4;/WX>)
+endif()
+
+# Build only after all complete-content sources and definitions were attached.
+option(STORMSLINGER_HORIZON_STRACKER "Complete Horizon plugin for retained Stracker loader" OFF)
+if(STORMSLINGER_HORIZON_STRACKER)
+  if(NOT STORMSLINGER_HORIZON_COMPLETE)
+    message(FATAL_ERROR "Complete Stracker plugin requires STORMSLINGER_HORIZON_COMPLETE")
+  endif()
+  get_target_property(horizon_plugin_sources StormslingerStandalone SOURCES)
+  list(FILTER horizon_plugin_sources EXCLUDE REGEX "dinput8\\.def$")
+  # Standalone retains its accepted legacy mapping implementation. The plugin
+  # borrows QuestLoader's relocated references and requires the shared-view
+  # aware complete implementation, including its activation predicate.
+  list(FILTER horizon_plugin_sources EXCLUDE REGEX "/horizon_quest_mapping\\.cpp$")
+  set(horizon_plugin_mapping_source ${horizon_complete_src}/horizon_quest_mapping.cpp)
+  list(APPEND horizon_plugin_sources ${horizon_plugin_mapping_source})
+  get_target_property(horizon_plugin_definitions StormslingerStandalone COMPILE_DEFINITIONS)
+  list(REMOVE_ITEM horizon_plugin_definitions STORMSLINGER_STANDALONE_PROXY=1)
+  add_library(HorizonCollaboration SHARED ${horizon_plugin_sources})
+  target_compile_definitions(HorizonCollaboration PRIVATE ${horizon_plugin_definitions}
+    STORMSLINGER_COMPATIBLE_PLUGIN=1 STORMSLINGER_HORIZON_STRACKER=1 STORMSLINGER_RUNTIME_DIAGNOSTICS=1)
+  target_compile_options(HorizonCollaboration PRIVATE /W4)
+  target_link_libraries(HorizonCollaboration PRIVATE minhook StormslingerShootingComponents bcrypt)
+  add_executable(HorizonCompleteQuestLoaderMappingSelftest src/quest_loader_mapping_compatibility_selftest.cpp
+    ${horizon_plugin_mapping_source})
+  target_compile_definitions(HorizonCompleteQuestLoaderMappingSelftest PRIVATE STORMSLINGER_COMPATIBLE_PLUGIN=1
+    STORMSLINGER_HORIZON_COMPLETE=1 STORMSLINGER_HORIZON_STRACKER=1)
+  target_compile_options(HorizonCompleteQuestLoaderMappingSelftest PRIVATE /W4 /WX)
+  target_link_libraries(HorizonCompleteQuestLoaderMappingSelftest PRIVATE minhook)
+  add_executable(HorizonQuestLoaderOwnerCopySelftest src/quest_loader_owner_copy_selftest.cpp)
+  target_compile_options(HorizonQuestLoaderOwnerCopySelftest PRIVATE /W4 /WX)
+endif()

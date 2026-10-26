@@ -1,0 +1,1 @@
+Historical source snapshot for the native release DLL. Use the repository-root BUILD.md and build-native.cmd for portable build instructions. Original tools retain historical absolute paths.

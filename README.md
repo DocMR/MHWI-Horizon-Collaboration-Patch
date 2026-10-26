@@ -9,6 +9,7 @@ Source materials for Nexus Mods manual review of [mod 8884](https://www.nexusmod
 - `BUILD.md`: build requirements and commands.
 - `RELEASE-HASHES.json`: submitted release and runtime binary identifiers.
 - `FILE-SHA256.json`: integrity inventory of this review tree.
+- `UPLOAD-GUIDE-zh-CN.md`: local upload checklist and GitHub Desktop instructions in Chinese.
 
 These are source files for inspection, not an installable game patch. No game models, textures, sound banks, video, save files or compiled patch DLLs are included. Snapshot directory names and relative layout are retained because CMake uses the adjacent staging source directories. Historical development scripts may refer to the author's original workspace; use the root build scripts instead.
 
