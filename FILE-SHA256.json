@@ -17,7 +17,7 @@
   "delivery-tools/package_horizon_auto_locate_fix.py": "fde88ce2e4d1cfe30ed918ca4103b911ba4a91dba55b961d9b17d1ab3034a895",
   "delivery-tools/Uninstall-HorizonPatch.ps1": "87923ae16b06e2b6662bb51e9e43834109dcf4f78c097ac8f1655df876b849bd",
   "delivery-tools/Uninstall-HorizonStrackerPatch.ps1": "64026767716ea14cbd3d9e0839806271e371f8cf3539c6fd9b2ad563e3d80f90",
-  "README.md": "1285dbf03f24babceb2df60475b4832b503e5d791738f277913d4935149eb5a6",
+  "README.md": "17a038dee3c5fa63941e9371932cbc2fa4a5029c0ea94c721e8c1a11e6e4c5fe",
   "RELEASE-HASHES.json": "ed012555c0d06b11e240bb417398fa7f988bcc10809856dc2677539bfac4b394",
   "snapshots/native/BUILD.txt": "fccc38903ea5dc39a37158839b351741e6719401edc0fc97326d5a85f20d16b8",
   "snapshots/native/runtime/CMakeLists.txt": "a71a1b3a33b0e47e326124641d31b9643851fb4c4ddc8a86212ead98272b2d65",
